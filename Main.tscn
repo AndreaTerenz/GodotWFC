@@ -1,0 +1,75 @@
+[gd_scene load_steps=3 format=3 uid="uid://dfo4aealsw6va"]
+
+[ext_resource type="Texture2D" uid="uid://b7i6j2v7s621g" path="res://samples/Cave.png" id="1_glv2v"]
+
+[sub_resource type="GDScript" id="GDScript_rxg2q"]
+resource_name = "Main"
+script/source = "extends Control
+
+@export var sample : Texture2D = preload(\"res://samples/City.png\")
+@export var tile_size := Vector2i.ONE * 3
+
+var sample_padded : Image
+var sample_padded_tex : ImageTexture
+var sample_size : Vector2i
+var sections : Array[ImageTexture] = []
+
+func _ready():
+	sample_size = Vector2i(sample.get_size())
+	
+	print(sample_size)
+	
+	tile_size.x = min(sample_size.x, tile_size.x)
+	
+	var sample_image := sample.get_image()
+	
+	sample_padded = Image.create_empty(sample_size.x * 3, sample_size.y * 3, false, sample_image.get_format())
+	sample_padded.fill(Color.RED)
+	
+	for i in range(3):
+		for j in range(3):
+			sample_padded.blit_rect(sample_image,
+				Rect2i(Vector2i.ZERO, sample_size),
+				Vector2i(i * sample_size.x, j * sample_size.y))
+				
+	sample_padded_tex = ImageTexture.create_from_image(sample_padded)
+	
+	for j in range(sample_size.y):
+		for i in range(sample_size.x):
+			sections.append(get_sample_section(Vector2i(i, j), tile_size))
+
+func _draw():
+	var tex_size := Vector2.ONE * 300.
+	
+	draw_texture_rect(sample, Rect2(Vector2(700, 0), tex_size), false)
+	draw_texture_rect(sample_padded_tex, Rect2(Vector2(700, tex_size.y), tex_size), false)
+	
+	var gap = 5.
+	tex_size = Vector2.ONE * 30.
+	
+	for i in len(sections):
+		var row = floor(i / sample_size.x)
+		var col = i % sample_size.y
+		var pos = Vector2((tex_size.x + gap) * col, (tex_size.y + gap) * row)
+		
+		draw_texture_rect(sections[i], Rect2(pos, tex_size), false)
+	
+func _process(delta):
+	queue_redraw()
+
+func get_sample_section(top_left: Vector2i, extents: Vector2i) -> ImageTexture:
+	var img := sample_padded.get_region(Rect2i(top_left + Vector2i.ONE * 9, extents))
+	
+	return ImageTexture.create_from_image(img)
+"
+
+[node name="Control" type="Control"]
+texture_filter = 1
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = SubResource("GDScript_rxg2q")
+sample = ExtResource("1_glv2v")
