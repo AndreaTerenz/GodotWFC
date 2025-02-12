@@ -10,7 +10,7 @@ script/source = "extends Control
 var sample_padded : Image
 var sample_padded_tex : ImageTexture
 var sample_size : Vector2i
-var sections : Array[ImageTexture] = []
+var tiles : Array[Tile] = []
 
 func _ready():
 	var sample_image := sample.get_image()
@@ -31,33 +31,62 @@ func _ready():
 				
 	sample_padded_tex = ImageTexture.create_from_image(sample_padded)
 	
+	var total := sample_size.x * sample_size.y
 	for j in range(sample_size.y):
 		for i in range(sample_size.x):
-			sections.append(get_sample_section(Vector2i(i, j), tile_size))
+			var idx := j * sample_size.x + i
+			var tile := Tile.new(i, j, idx, sample_padded, tile_size, total)
+			
+			tiles.append(tile)
+			
+	# assert(tiles[0].overlaps(tiles[1], Tile.TILE_SIDE.WEST))
+	# assert(tiles[1].overlaps(tiles[0], Tile.TILE_SIDE.EAST))
+	
+	# assert(not tiles[0].overlaps(tiles[2], Tile.TILE_SIDE.WEST))
+	
+	# assert(tiles[1].overlaps(tiles[2], Tile.TILE_SIDE.WEST))
+	# assert(tiles[1].overlaps(tiles[3], Tile.TILE_SIDE.WEST))
+	
+	# assert(tiles[0].overlaps(tiles[sample_size.x], Tile.TILE_SIDE.SOUTH))
+	# assert(not tiles[0].overlaps(tiles[sample_size.x+1], Tile.TILE_SIDE.SOUTH))
+	# assert(tiles[sample_size.x].overlaps(tiles[0], Tile.TILE_SIDE.NORTH))
+	
+	for tile in tiles:
+		tile.fill_neighbors(tiles)
+	
+	# print(tiles[0].neighbors[Tile.TILE_SIDE.WEST])
+	# print(tiles[1].neighbors[Tile.TILE_SIDE.WEST])
+	# print(tiles[sample_size.x * 2].neighbors[Tile.TILE_SIDE.WEST])
 
 func _draw():
-	var tex_size := Vector2.ONE * 300.
+	var rid := get_canvas_item()
+	var rect_size := Vector2.ONE * 100.
 	
-	draw_texture_rect(sample, Rect2(Vector2(700, 0), tex_size), false)
-	draw_texture_rect(sample_padded_tex, Rect2(Vector2(700, tex_size.y + 10.), tex_size), false)
+	draw_set_transform(Vector2(1000, 0))
+	
+	draw_texture_rect(sample, Rect2(Vector2.ZERO, rect_size), false)
+	draw_texture_rect(sample_padded_tex, Rect2(Vector2(0, rect_size.y + 10.), rect_size), false)
+	
+	draw_set_transform(Vector2.ZERO)
 	
 	var gap = 5.
-	tex_size = Vector2.ONE * 30.
+	rect_size = Vector2.ONE * 30.
 	
-	for i in len(sections):
+	for tile in tiles:
+		var i := tile.index
 		var row = floor(i / sample_size.x)
 		var col = i % sample_size.y
-		var pos = Vector2((tex_size.x + gap) * col, (tex_size.y + gap) * row)
+		var pos = Vector2((rect_size.x + gap) * col, (rect_size.y + gap) * row)
 		
-		draw_texture_rect(sections[i], Rect2(pos, tex_size), false)
+		tile.draw(rid, pos, rect_size)
 	
 func _process(delta):
 	queue_redraw()
 
-func get_sample_section(top_left: Vector2i, extents: Vector2i) -> ImageTexture:
+func get_sample_section(top_left: Vector2i, extents: Vector2i) -> Image:
 	var img := sample_padded.get_region(Rect2i(top_left, extents))
 	
-	return ImageTexture.create_from_image(img)
+	return img
 "
 
 [node name="Control" type="Control"]
