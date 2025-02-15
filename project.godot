@@ -15,6 +15,10 @@ run/main_scene="uid://dfo4aealsw6va"
 config/features=PackedStringArray("4.4", "Forward Plus")
 config/icon="res://icon.svg"
 
+[autoload]
+
+Utils="*res://Utils.gd"
+
 [input]
 
 step={

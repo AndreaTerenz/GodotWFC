@@ -10,6 +10,7 @@ enum TILE_SIDE {
 
 var index := -1
 var top_left := Vector2i.ZERO
+var frequency := 0
 var image : Image
 var texture : ImageTexture
 var neighbors : Dictionary[TILE_SIDE, Array] = {}
@@ -18,14 +19,14 @@ var size : Vector2i :
 	get:
 		return image.get_size()
 
-func _init(x: int, y: int, idx: int, source_img: Image, sample_size: Vector2i, tile_total: int):
-	self.index = idx
-	
+func _init(x: int, y: int, idx: int, image: Image):
 	var tl := Vector2i(x, y)
-	self.top_left = tl
 	
-	self.image = source_img.get_region(Rect2i(tl, sample_size))
+	self.top_left = tl
+	self.index = idx
+	self.image = image #source_img.get_region(Rect2i(tl, sample_size))
 	self.texture = ImageTexture.create_from_image(self.image)
+	self.frequency = 1
 	
 	for key in TILE_SIDE.keys():
 		self.neighbors[TILE_SIDE.get(key)] = []
@@ -52,25 +53,18 @@ func overlaps(other: Tile, side: TILE_SIDE):
 	var self_side := image.get_region(Rect2i(tl_self, slice_size))
 	var other_side := other.image.get_region(Rect2i(tl_other, slice_size))
 	
-	for r in range(slice_size.y):
-		for c in range(slice_size.x):
-			var self_pixel := self_side.get_pixel(c, r)
-			var other_pixel := other_side.get_pixel(c, r)
-			
-			if (self_pixel != other_pixel):
-				return false
-	
-	return true
+	return Utils.compare_images(self_side, other_side)
+
+func compare(other: Tile):
+	return Utils.compare_images(image, other.image)
 	
 func fill_neighbors(others: Array[Tile]):
 	for side_id in TILE_SIDE.keys():
 		var side : TILE_SIDE = TILE_SIDE.get(side_id)
-		for other in others:
-			if other.index == self.index:
-				continue
-				
-			if overlaps(other, side):
-				neighbors[side].append(other.index)
+		
+		neighbors[side] = others.filter(func(other: Tile):
+			return other.index != self.index and overlaps(other, side)
+		).map(func(t: Tile): return t.index)
 
 func draw(canvas_rid: RID, pos: Vector2i, size: Vector2i):
 	texture.draw_rect(canvas_rid, Rect2i(pos, size), false)

@@ -1,4 +1,6 @@
-[gd_scene load_steps=2 format=3 uid="uid://dfo4aealsw6va"]
+[gd_scene load_steps=3 format=3 uid="uid://dfo4aealsw6va"]
+
+[ext_resource type="Texture2D" uid="uid://dc8gfwht6kpqy" path="res://samples/Skew1.png" id="1_glv2v"]
 
 [sub_resource type="GDScript" id="GDScript_rxg2q"]
 resource_name = "Main"
@@ -8,6 +10,8 @@ script/source = "extends Control
 @export var tile_size := Vector2i.ONE * 3
 @export var cell_grid_size := Vector2i(30, 10)
 @export var cell_draw_size := Vector2i(10, 10)
+@export_range(1, 20) var recursion_depth := 5
+@export_range(2, 15) var collapse_pick_size := 5
 
 var sample_padded : Image
 var sample_padded_tex : ImageTexture
@@ -16,11 +20,11 @@ var tiles : Array[Tile] = []
 var cells : Array[Cell] = []
 var collapsed_count := 0
 var default_font : Font = ThemeDB.fallback_font;
-
 var run := false
+var max_entropy := -1.
 
 func _ready():
-	#seed(69421)
+	seed(69421)
 	
 	var sample_image := sample.get_image()
 	sample_size = Vector2i(sample.get_size())
@@ -40,25 +44,53 @@ func _ready():
 				
 	sample_padded_tex = ImageTexture.create_from_image(sample_padded)
 	
-	var total := sample_size.x * sample_size.y
 	for j in range(sample_size.y):
 		for i in range(sample_size.x):
-			var idx := j * sample_size.x + i
-			var tile := Tile.new(i, j, idx, sample_padded, tile_size, total)
+			var tile_img := sample_padded.get_region(Rect2i(Vector2i(i, j), tile_size))
+			var tile := Tile.new(i, j, len(tiles), tile_img)
 			
-			tiles.append(tile)
+			var is_new := true
+			for other in tiles:
+				if Utils.compare_images(tile_img, other.image):
+					other.frequency += 1
+					tile.frequency += 1
+					#is_new = false
+					break
+			
+			if is_new:
+				tiles.append(tile)
+				
+	print(\"%d unique tiles\" % len(tiles))
 	
 	for tile in tiles:
 		tile.fill_neighbors(tiles)
+		
+	#print(tiles[1].neighbors[Tile.TILE_SIDE.WEST])
+	#print(tiles[3].neighbors[Tile.TILE_SIDE.EAST])
+	#print(tiles[16].neighbors[Tile.TILE_SIDE.WEST])
+	#print(tiles[2].frequency)
 		
 	for r in cell_grid_size.y:
 		for c in cell_grid_size.x:
 			var cell := Cell.new(len(tiles))
 			cells.append(cell)
+			cell.get_entropy(tiles)
+			
+	max_entropy = cells[0].entropy
 	
 func _draw():
+	var gap := 0
+	
+	\"\"\"gap = 10
 	var rid := get_canvas_item()
-	var gap := 0.
+	for i in len(tiles):
+		var t := tiles[i]
+		var p := pos_from_idx(t.index, 9) * (cell_draw_size * 5  + Vector2i.ONE * gap)
+		
+		t.draw(rid, p, cell_draw_size * 5)
+
+	return
+	\"\"\"
 
 	for i in len(cells):
 		var cell := cells[i]
@@ -67,17 +99,18 @@ func _draw():
 		
 		if len(cell.options) <= 0:
 			draw_rect(Rect2(pos, cell_draw_size), Color.DEEP_PINK)
-		elif not cell.collapsed:
-			var t := float(len(cell.options)) / float(len(tiles))
-			draw_rect(Rect2(pos, cell_draw_size), Color.WHITE.lerp(Color.BLACK, t))
+			continue
 			
-			# draw_string(default_font, pos + rect_size/2, \"%02d\" % len(cell.options),
-			# 	HORIZONTAL_ALIGNMENT_LEFT, 90, 20, Color.WHITE if t > 0.5 else Color.BLACK)
-		else:
-			var tile := tiles[cell.options[0]]
-			#tile.draw(rid, pos, rect_size)
-			var col = tile.image.get_pixelv(tile_size / 2)
-			draw_rect(Rect2(pos, cell_draw_size), col)
+		if not cell.collapsed:
+			#var t := float(len(cell.options)) / float(len(tiles))
+			var t := cell.entropy / max_entropy
+			draw_rect(Rect2(pos, cell_draw_size), Color.WHITE.lerp(Color.BLACK, t))
+			continue
+		
+		var tile := tiles[cell.options[0]]
+		var col = tile.image.get_pixelv(tile_size / 2)
+		
+		draw_rect(Rect2(pos, cell_draw_size), col)
 	
 func _input(event):
 	#if not Input.is_action_just_pressed(\"step\") or collapsed_count >= len(cells):
@@ -85,16 +118,23 @@ func _input(event):
 	
 	if event.is_action_pressed(\"run\"):
 		run = not run
+		return
+		
+	if event.is_action_pressed(\"step\"):
+		print(\"Stepping\")
+		run = false
+		wfc_step()
 	elif event.is_action_pressed(\"reset\"):
+		print(\"Reset\")
 		run = false
 		collapsed_count = 0
 		
 		for cell in cells:
 			cell.full_reset(len(tiles))
 		
-		queue_redraw()
+	queue_redraw()
 
-func _process(delta):
+func _process(_delta):
 	if collapsed_count >= len(cells) or not run:
 		return
 		
@@ -113,38 +153,48 @@ func wfc_step():
 		cell.stepped = false
 	
 		if len(cell.options) > 0:
+			cell.get_entropy(tiles)
 			cells_idxs.append(idx)
 		else:
-			printerr(\"Conflict!\")
-			run = false
+			cell.collapsed = true
+			collapsed_count += 1
+			#printerr(\"Unsolvable cell!\")
+			#run = false
 	
 	if len(cells_idxs) <= 0:
 		printerr(\"No collapsable cells!\")
-		run = false
+		#run = false
 		return
 	
 	cells_idxs.sort_custom(func(ia: int, ib: int):
 		var la := len(cells[ia].options)
 		var lb := len(cells[ib].options)
 		
-		# if la == lb:
-		# 	return ia < ib
+		# Give priority to collapsable cells
+		if (la == 1 or lb == 1) and false:
+			if la * lb == 1:
+				return ia < ib
 		
-		return la < lb
+			return la == 1
+		
+		var entrA := cells[ia].entropy
+		var entrB := cells[ib].entropy
+		
+		return  entrA < entrB
 	)
 	
-	var target : int = cells_idxs.slice(0, 4).pick_random()
+	var target : int = cells_idxs.slice(0, collapse_pick_size).pick_random()
 	var target_cell := cells[target]
-	var propagate_depth = 6
 	
 	target_cell.collapse()
 	collapsed_count += 1
 	
-	# print(\"Collapsed cell %d at %s to %d\" % [
-	# 	target, pos_from_idx(target, cell_grid_size.x), cells[target].options[0]
-	# ])
+	if false:
+		print(\"Collapsed cell %d at %s to %d\" % [
+			target, pos_from_idx(target, cell_grid_size.x), cells[target].options[0]
+		])
 	
-	propagate(target, propagate_depth)
+	propagate(target, recursion_depth)
 
 func propagate(current_idx: int, max_depth: int):
 	var current := cells[current_idx]
@@ -170,13 +220,11 @@ func propagate(current_idx: int, max_depth: int):
 		for opt in current.options:
 			valid.append_array(tiles[opt].neighbors[side])
 			
-		neighbor.options = neighbor.options.filter(func(tile_idx):
-			return tile_idx in valid
-		)
+		neighbor.update_options(valid)
 		
 		propagate(neighbor_idx, max_depth-1)
 
-func side_cell(origin_idx: int, side: Tile.TILE_SIDE, clamp := true) -> int:
+func side_cell(origin_idx: int, side: Tile.TILE_SIDE, fit_borders := true) -> int:
 	var origin_pos := pos_from_idx(origin_idx, cell_grid_size.x)
 	var dest_pos := origin_pos
 	
@@ -190,7 +238,7 @@ func side_cell(origin_idx: int, side: Tile.TILE_SIDE, clamp := true) -> int:
 		Tile.TILE_SIDE.WEST:
 			dest_pos.x += 1
 	
-	if clamp:
+	if fit_borders:
 		if dest_pos.x >= cell_grid_size.x or dest_pos.y >= cell_grid_size.y:
 			return -1
 		if dest_pos.x < 0 or dest_pos.y < 0:
@@ -207,6 +255,7 @@ func idx_from_pos(row: int, col: int, width: int) -> int:
 	return -1 if (row < 0 or col < 0) else row * width + col
 	
 func pos_from_idx(idx: int, width: int) -> Vector2i:
+	@warning_ignore(\"integer_division\")
 	return Vector2i(idx % width, floori(idx / width))
 
 func get_sample_section(top_left: Vector2i, extents: Vector2i) -> Image:
@@ -224,4 +273,7 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 script = SubResource("GDScript_rxg2q")
-cell_grid_size = Vector2i(70, 50)
+sample = ExtResource("1_glv2v")
+cell_grid_size = Vector2i(40, 30)
+cell_draw_size = Vector2i(20, 20)
+collapse_pick_size = 12
